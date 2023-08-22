@@ -2,6 +2,7 @@
 using ExcelDna.IntelliSense;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using System.Runtime.Loader;
 using Westwind.Scripting;
 
 namespace TestExcelDna
@@ -17,8 +18,7 @@ namespace TestExcelDna
                 // at app startup - runs a background task, but don't await
                 _ = RoslynLifetimeManager.WarmupRoslyn();
                 IntelliSenseServer.Install();
-                RegisterFunctionsWorks();
-                RegisterFunctionsDoesNotWork();
+                RegisterFunctions();
                 IntelliSenseServer.Refresh();
             }
             catch (Exception ex)
@@ -30,89 +30,31 @@ namespace TestExcelDna
 
         public void AutoClose()
         {
-            IntelliSenseServer.Uninstall();
-        }
-
-        public void RegisterFunctionsWorks()
-        {
-            var script = new CSharpScriptExecution() { SaveGeneratedCode = true };
-            script.AddDefaultReferencesAndNamespaces();
-
-            var code = $@"
-                using System;
-
-                namespace MyApp
-                {{
-	                public class MathWorks
-	                {{
-
-                        public MathWorks() {{}}
-
-                        public static string TestAddWorks(int num1, int num2)
-		                {{
-			                // string templates
-			                var result = num1 + "" + "" + num2 + "" = "" + (num1 + num2);
-			                Console.WriteLine(result);
-		                
-			                return result;
-		                }}
-		                
-		                public static string TestMultiplyWorks(int num1, int num2)
-		                {{
-			                // string templates
-			                var result = $""{{num1}}  *  {{num2}} = {{ num1 * num2 }}"";
-			                Console.WriteLine(result);
-			                
-			                result = $""Take two: {{ result ?? ""No Result"" }}"";
-			                Console.WriteLine(result);
-			                
-			                return result;
-		                }}
-	                }}
-                }}";
-
-            // need dynamic since current app doesn't know about type
-            dynamic math = script.CompileClass(code);
-
-            Console.WriteLine(script.GeneratedClassCodeWithLineNumbers);
-
-            // Grabbing assembly for below registration
-            dynamic mathClass = script.CompileClassToType(code);
-            var assembly = mathClass.Assembly;
-
-            if (!script.Error)
+            try
             {
-                Assembly asm = assembly;
-                Type[] types = asm.GetTypes();
-                List<MethodInfo> methods = new();
-
-                // Get list of MethodInfo's from assembly for each method with ExcelFunction attribute
-                foreach (Type type in types)
-                {
-                    foreach (MethodInfo info in type.GetMethods(BindingFlags.Public | BindingFlags.Static))
-                    {
-                        methods.Add(info);
-                    }
-                }
-
-                Integration.RegisterMethods(methods);
+                IntelliSenseServer.Uninstall();
             }
-            else
+            catch (Exception ex)
             {
-                //MessageBox.Show("Errors during compile!");
+                var error = ex.StackTrace;
+                Console.WriteLine(error);
             }
         }
 
-        public void RegisterFunctionsDoesNotWork()
+        public void RegisterFunctions()
         {
-            var script = new CSharpScriptExecution() { SaveGeneratedCode = true };
-            script.AddDefaultReferencesAndNamespaces();
+            var script = new CSharpScriptExecution
+            {
+                SaveGeneratedCode = true,
+                AlternateAssemblyLoadContext = AssemblyLoadContext.GetLoadContext(this.GetType().Assembly)
+            };
 
-            // No ExcelDna.Integration.dll, so the below commented line does not work
-            // script.AddAssembly("ExcelDna.Integration.dll");
-            script.AddAssembly(typeof(ExcelIntegration));
-            script.AddAssembly(typeof(ExcelArgumentAttribute));
-            script.AddAssembly(typeof(ExcelFunctionAttribute));
+            using (var ctx = System.Runtime.Loader.AssemblyLoadContext.EnterContextualReflection(this.GetType().Assembly))
+            {
+                // ... run code that loads extra assemblies here
+                script.AddNetCoreDefaultReferences();
+                script.AddAssembly(typeof(ExcelIntegration));
+            }
 
             var code = $@"
                 using System;
@@ -120,13 +62,17 @@ namespace TestExcelDna
 
                 namespace MyApp
                 {{
-	                public class MathDoesNotWork
+	                public class Math
 	                {{
 
-                        public MathDoesNotWork() {{}}
+                        public Math() {{}}
 
-                        [ExcelFunction(Name = ""TestAddDoesNotWork"", Description = ""Returns 'TestAddDoesNotWork'"")]
-                        public static string TestAddDoesNotWork(int num1, int num2)
+                        [ExcelFunction(Name = ""TestAdd"", Description = ""Returns 'TestAdd'"")]
+                        public static string TestAdd(
+                            [ExcelArgument(Name=""num1"",Description = ""The first integer."")]                            
+                            int num1,
+                            [ExcelArgument(Name=""num2"",Description = ""The second integer."")]                            
+                            int num2)
 		                {{
 			                // string templates
 			                var result = num1 + "" + "" + num2 + "" = "" + (num1 + num2);
@@ -135,8 +81,12 @@ namespace TestExcelDna
 			                return result;
 		                }}
 		                
-                        [ExcelFunction(Name = ""TestMultiplyDoesNotWork"", Description = ""Returns 'TestMultiplyAddDoesNotWork'"")]
-		                public static string TestMultiplyDoesNotWork(int num1, int num2)
+                        [ExcelFunction(Name = ""TestMultiply"", Description = ""Returns 'TestMultiply'"")]
+		                public static string TestMultiply(
+                            [ExcelArgument(Name=""num1"",Description = ""The first integer."")]                            
+                            int num1,
+                            [ExcelArgument(Name=""num2"",Description = ""The second integer."")]                            
+                            int num2)
 		                {{
 			                // string templates
 			                var result = $""{{num1}}  *  {{num2}} = {{ num1 * num2 }}"";
