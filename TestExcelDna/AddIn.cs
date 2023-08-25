@@ -1,13 +1,11 @@
 ﻿using ExcelDna.Integration;
 using ExcelDna.IntelliSense;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Runtime.Loader;
 using Westwind.Scripting;
 
 namespace TestExcelDna
 {
-    [ComVisible(false)]
     public class AddIn : IExcelAddIn
     {
         public void AutoOpen()
